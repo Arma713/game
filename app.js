@@ -1,5 +1,6 @@
 const state = {
   hourly: null, // { time: [...], temperature: [...], isDay: [...] }
+  deferredInstallPrompt: null,
 };
 
 const el = {
@@ -21,7 +22,56 @@ const el = {
   timelineCard: document.getElementById("timeline-card"),
   timeline: document.getElementById("timeline"),
   timelineChanges: document.getElementById("timeline-changes"),
+  installBanner: document.getElementById("install-banner"),
+  installInstructions: document.getElementById("install-instructions"),
+  btnInstall: document.getElementById("btn-install"),
+  btnDismissInstall: document.getElementById("btn-dismiss-install"),
 };
+
+function setupInstallBanner() {
+  const isStandalone =
+    window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+  if (isStandalone) return;
+  if (localStorage.getItem("volet-malin-install-dismissed") === "1") return;
+
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+  if (isIOS) {
+    el.installInstructions.textContent =
+      "Appuyez sur Partager, puis \"Sur l'écran d'accueil\" pour installer l'app.";
+    el.installBanner.classList.remove("hidden");
+  } else {
+    el.installInstructions.textContent = "Ajoutez l'app à votre écran d'accueil pour un accès rapide.";
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      state.deferredInstallPrompt = e;
+      el.btnInstall.classList.remove("hidden");
+      el.installBanner.classList.remove("hidden");
+    });
+  }
+
+  el.btnInstall.addEventListener("click", async () => {
+    if (!state.deferredInstallPrompt) return;
+    state.deferredInstallPrompt.prompt();
+    await state.deferredInstallPrompt.userChoice;
+    state.deferredInstallPrompt = null;
+    el.installBanner.classList.add("hidden");
+  });
+
+  el.btnDismissInstall.addEventListener("click", () => {
+    localStorage.setItem("volet-malin-install-dismissed", "1");
+    el.installBanner.classList.add("hidden");
+  });
+}
+
+function registerServiceWorker() {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+}
+
+setupInstallBanner();
+registerServiceWorker();
 
 function getRecommendation({ outdoorTemp, indoorTemp, targetMin, targetMax, isDay }) {
   if (isDay) {

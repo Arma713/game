@@ -62,7 +62,31 @@ body {
 .app {
   max-width: 640px;
   margin: 0 auto;
-  padding: 24px 16px 48px;
+  padding: max(24px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(48px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+
+.install-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-color: var(--primary);
+}
+
+.install-text {
+  flex: 1;
+  min-width: 180px;
+}
+
+.install-text strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.install-text p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
 }
 
 .app-header {
@@ -135,8 +159,9 @@ body {
 
 input, select {
   font-family: inherit;
-  font-size: 0.95rem;
+  font-size: 16px; /* prevents iOS Safari auto-zoom on focus */
   padding: 9px 12px;
+  min-height: 44px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--bg);
@@ -152,6 +177,7 @@ input:focus, select:focus, button:focus-visible {
   border: none;
   border-radius: 10px;
   padding: 10px 16px;
+  min-height: 44px;
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;

@@ -2,9 +2,19 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
   <title>Volet Malin — Optimiseur de température</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><text y=%2220%22 font-size=%2220%22>🌡️</text></svg>" />
+
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#2563eb" />
+
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Volet Malin" />
+
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -25,6 +35,15 @@
     </header>
 
     <main>
+      <section id="install-banner" class="card install-banner hidden">
+        <div class="install-text">
+          <strong>Installer Volet Malin</strong>
+          <p id="install-instructions"></p>
+        </div>
+        <button id="btn-install" class="btn btn-primary hidden">Installer</button>
+        <button id="btn-dismiss-install" class="btn btn-secondary">OK</button>
+      </section>
+
       <section class="card location-card">
         <div class="location-row">
           <button id="btn-geoloc" class="btn btn-primary">
