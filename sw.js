@@ -1,4 +1,4 @@
-const CACHE_NAME = "volet-malin-v4";
+const CACHE_NAME = "volet-malin-v5";
 const APP_SHELL = [
   "./",
   "./index.html",

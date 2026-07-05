@@ -2,6 +2,7 @@
 
 const FETCH_TIMEOUT_MS = 10000;
 const TIMELINE_HOURS = 24;
+const WEATHER_REFRESH_MS = 30 * 60 * 1000;
 
 const state = {
   // { time: [unix seconds...], temperature: [...], isDay: [...], utcOffsetSeconds }
@@ -10,6 +11,8 @@ const state = {
   deferredInstallPrompt: null,
   requestToken: 0, // invalidates stale in-flight weather requests
   lastRecommendation: null, // "open" | "close", set on every renderResult
+  lastLocation: null, // { lat, lon, label } of the last successful weather load
+  weatherLoadedAt: 0,
   ha: { url: "", token: "", sensorId: "", coverIds: [], refreshTimer: null },
 };
 
@@ -73,9 +76,11 @@ function timeoutSignal(ms) {
   return controller.signal;
 }
 
+const btnCitySubmit = document.querySelector("#form-city button[type=submit]");
+
 function setBusy(busy) {
   el.btnGeoloc.disabled = busy;
-  el.formCity.querySelector("button[type=submit]").disabled = busy;
+  btnCitySubmit.disabled = busy;
 }
 
 // Hour of day at the observed location, regardless of the browser's timezone.
@@ -309,7 +314,9 @@ async function fetchWeather(lat, lon) {
     h.time.length === 0 ||
     h.time.length !== h.temperature_2m.length ||
     h.time.length !== h.is_day.length ||
-    !h.time.every(Number.isFinite)
+    !h.time.every(Number.isFinite) ||
+    !h.temperature_2m.every(Number.isFinite) ||
+    !h.is_day.every(Number.isFinite)
   ) {
     throw new Error("Réponse météo invalide");
   }
@@ -342,7 +349,10 @@ async function loadWeatherFor(lat, lon, label) {
     const hourly = await fetchWeather(lat, lon);
     if (token !== state.requestToken) return; // a newer request superseded this one
 
-    el.locationStatus.textContent = label ? `Météo chargée pour ${label}` : "Météo chargée pour votre position";
+    state.lastLocation = { lat, lon, label };
+    state.weatherLoadedAt = Date.now();
+    const timeLabel = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    el.locationStatus.textContent = `${label ? `Météo chargée pour ${label}` : "Météo chargée pour votre position"} · MAJ ${timeLabel}`;
     el.manualCard.classList.add("hidden");
 
     const nowSeconds = Date.now() / 1000;
@@ -368,6 +378,20 @@ async function loadWeatherFor(lat, lon, label) {
   }
 }
 
+// Re-fetch the forecast when it goes stale so a device left open (installed
+// PWA, wall tablet) keeps showing a recommendation for the current hour.
+function refreshWeatherIfStale() {
+  if (!state.lastLocation) return;
+  if (Date.now() - state.weatherLoadedAt < WEATHER_REFRESH_MS) return;
+  const { lat, lon, label } = state.lastLocation;
+  loadWeatherFor(lat, lon, label);
+}
+
+setInterval(refreshWeatherIfStale, WEATHER_REFRESH_MS);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshWeatherIfStale();
+});
+
 el.btnGeoloc.addEventListener("click", () => {
   if (!navigator.geolocation) {
     el.locationStatus.textContent = "Géolocalisation non supportée. Utilisez le mode manuel.";
@@ -376,12 +400,14 @@ el.btnGeoloc.addEventListener("click", () => {
   }
   el.locationStatus.textContent = "Localisation en cours…";
   setBusy(true);
+  const tokenBeforeGeoloc = state.requestToken;
   navigator.geolocation.getCurrentPosition(
     // ~1 km precision is plenty for weather and avoids sending an exact
     // home location to a third-party API.
     (pos) => loadWeatherFor(pos.coords.latitude.toFixed(2), pos.coords.longitude.toFixed(2)),
     () => {
-      setBusy(false);
+      // Only release the buttons if no other request took over meanwhile.
+      if (state.requestToken === tokenBeforeGeoloc) setBusy(false);
       el.locationStatus.textContent = "Position refusée ou indisponible. Utilisez le mode manuel.";
       el.manualCard.classList.remove("hidden");
     },
@@ -533,8 +559,14 @@ async function haRefreshSensor() {
   try {
     const s = await haFetch(`/api/states/${encodeURIComponent(state.ha.sensorId)}`);
     haApplySensorReading(s.state);
-  } catch {
-    /* transient failure: keep last known value */
+  } catch (err) {
+    // A rejected token won't fix itself: stop polling and tell the user.
+    if (err && err.message === "Jeton refusé") {
+      clearInterval(state.ha.refreshTimer);
+      state.ha.refreshTimer = null;
+      el.haStatus.textContent = "Jeton Home Assistant expiré ou révoqué. Reconnectez-vous.";
+    }
+    /* otherwise transient failure: keep last known value */
   }
 }
 
