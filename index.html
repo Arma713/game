@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta
     http-equiv="Content-Security-Policy"
-    content="default-src 'self'; connect-src 'self' https://api.open-meteo.com https://geocoding-api.open-meteo.com; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
+    content="default-src 'self'; connect-src 'self' https: http://*:8123; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
   />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="referrer" content="no-referrer" />
@@ -87,6 +87,49 @@
               <span>°C</span>
             </div>
           </label>
+        </div>
+      </section>
+
+      <section class="card ha-card">
+        <h2>Maison connectée</h2>
+        <p class="hint">
+          Connectez <strong>Home Assistant</strong> pour lire vos thermomètres et piloter vos volets automatiquement.
+          <button type="button" id="ha-help-toggle" class="linklike">Comment faire ?</button>
+        </p>
+        <div id="ha-help" class="ha-help hidden">
+          <ol>
+            <li>Vos thermomètres et volets doivent être intégrés à <a href="https://www.home-assistant.io/" target="_blank" rel="noopener noreferrer">Home Assistant</a> (compatible Somfy, Zigbee, Netatmo, etc.).</li>
+            <li>Dans Home Assistant : cliquez sur votre profil → onglet <em>Sécurité</em> → <em>Jetons d'accès longue durée</em> → <em>Créer un jeton</em>.</li>
+            <li>Collez l'adresse de votre Home Assistant et le jeton ci-dessous.</li>
+          </ol>
+          <p>⚠️ Le jeton est enregistré uniquement sur cet appareil. Si l'app est servie en HTTPS, l'adresse Home Assistant doit aussi être en HTTPS (ex. lien Nabu Casa).</p>
+        </div>
+        <div class="ha-config">
+          <label class="field">
+            Adresse Home Assistant
+            <input id="ha-url" type="url" placeholder="https://xxxx.ui.nabu.casa ou http://192.168.1.20:8123" autocomplete="off" />
+          </label>
+          <label class="field">
+            Jeton d'accès longue durée
+            <input id="ha-token" type="password" placeholder="Jeton créé dans votre profil" autocomplete="off" />
+          </label>
+          <button id="btn-ha-connect" class="btn btn-primary">Connecter</button>
+        </div>
+        <p id="ha-status" class="status-text" role="status" aria-live="polite"></p>
+        <div id="ha-devices" class="ha-devices hidden">
+          <label class="field">
+            Thermomètre intérieur
+            <select id="ha-sensor"></select>
+          </label>
+          <div class="field">
+            Volets à piloter
+            <div id="ha-covers" class="covers-list"></div>
+          </div>
+          <div class="ha-actions">
+            <button id="btn-shutters-open" class="btn btn-secondary">⬆️ Ouvrir</button>
+            <button id="btn-shutters-close" class="btn btn-secondary">⬇️ Fermer</button>
+            <button id="btn-apply-reco" class="btn btn-primary">Appliquer la recommandation</button>
+          </div>
         </div>
       </section>
 

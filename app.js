@@ -9,6 +9,8 @@ const state = {
   hourly: null,
   deferredInstallPrompt: null,
   requestToken: 0, // invalidates stale in-flight weather requests
+  lastRecommendation: null, // "open" | "close", set on every renderResult
+  ha: { url: "", token: "", sensorId: "", coverIds: [], refreshTimer: null },
 };
 
 const el = {
@@ -34,6 +36,18 @@ const el = {
   installInstructions: document.getElementById("install-instructions"),
   btnInstall: document.getElementById("btn-install"),
   btnDismissInstall: document.getElementById("btn-dismiss-install"),
+  haHelpToggle: document.getElementById("ha-help-toggle"),
+  haHelp: document.getElementById("ha-help"),
+  haUrl: document.getElementById("ha-url"),
+  haToken: document.getElementById("ha-token"),
+  btnHaConnect: document.getElementById("btn-ha-connect"),
+  haStatus: document.getElementById("ha-status"),
+  haDevices: document.getElementById("ha-devices"),
+  haSensor: document.getElementById("ha-sensor"),
+  haCovers: document.getElementById("ha-covers"),
+  btnShuttersOpen: document.getElementById("btn-shutters-open"),
+  btnShuttersClose: document.getElementById("btn-shutters-close"),
+  btnApplyReco: document.getElementById("btn-apply-reco"),
 };
 
 // localStorage throws in some private-browsing modes; degrade to no-op.
@@ -180,6 +194,7 @@ function getRecommendation({ outdoorTemp, indoorTemp, targetMin, targetMax, isDa
 }
 
 function renderResult(rec) {
+  state.lastRecommendation = rec.action;
   el.resultCard.classList.remove("hidden");
   el.resultIcon.className = `result-icon ${rec.action}`;
   el.resultIcon.textContent = rec.action === "close" ? "🌡️" : "☀️";
@@ -404,3 +419,233 @@ el.btnManualCompute.addEventListener("click", computeManual);
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Home Assistant: read indoor thermometers, drive shutters (cover entities)
+// ---------------------------------------------------------------------------
+
+const HA_KEY = "volet-malin-ha";
+const HA_SENSOR_REFRESH_MS = 5 * 60 * 1000;
+
+function haBaseUrl() {
+  return state.ha.url.replace(/\/+$/, "");
+}
+
+function haValidateUrl(raw) {
+  const url = new URL(raw); // throws if malformed
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("Protocole non supporté");
+  }
+  return url.origin + url.pathname.replace(/\/+$/, "");
+}
+
+async function haFetch(path, body) {
+  const res = await fetch(haBaseUrl() + path, {
+    method: body ? "POST" : "GET",
+    headers: {
+      Authorization: `Bearer ${state.ha.token}`,
+      "Content-Type": "application/json",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: timeoutSignal(FETCH_TIMEOUT_MS),
+  });
+  if (res.status === 401 || res.status === 403) throw new Error("Jeton refusé");
+  if (!res.ok) throw new Error(`Erreur Home Assistant (${res.status})`);
+  return res.json();
+}
+
+function haSaveConfig() {
+  storage.set(
+    HA_KEY,
+    JSON.stringify({
+      url: state.ha.url,
+      token: state.ha.token,
+      sensorId: state.ha.sensorId,
+      coverIds: state.ha.coverIds,
+    })
+  );
+}
+
+function haSelectedCoverIds() {
+  return Array.from(el.haCovers.querySelectorAll("input:checked")).map((c) => c.value);
+}
+
+function isTemperatureSensor(s) {
+  if (!s.entity_id.startsWith("sensor.")) return false;
+  const attrs = s.attributes || {};
+  const isTemp =
+    attrs.device_class === "temperature" || String(attrs.unit_of_measurement || "").includes("°C");
+  return isTemp && Number.isFinite(parseFloat(s.state));
+}
+
+function haRenderDevices(states) {
+  const sensors = states.filter(isTemperatureSensor);
+  const covers = states.filter((s) => s.entity_id.startsWith("cover."));
+
+  el.haSensor.replaceChildren();
+  const noneOpt = document.createElement("option");
+  noneOpt.value = "";
+  noneOpt.textContent = "— Aucun (saisie manuelle) —";
+  el.haSensor.appendChild(noneOpt);
+  sensors.forEach((s) => {
+    const opt = document.createElement("option");
+    opt.value = s.entity_id;
+    opt.textContent = `${s.attributes.friendly_name || s.entity_id} (${parseFloat(s.state)}°C)`;
+    el.haSensor.appendChild(opt);
+  });
+  if (state.ha.sensorId && sensors.some((s) => s.entity_id === state.ha.sensorId)) {
+    el.haSensor.value = state.ha.sensorId;
+  }
+
+  el.haCovers.replaceChildren();
+  if (covers.length === 0) {
+    el.haCovers.appendChild(makeDiv("hint", "Aucun volet trouvé dans Home Assistant."));
+  }
+  covers.forEach((c) => {
+    const label = document.createElement("label");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = c.entity_id;
+    checkbox.checked = state.ha.coverIds.includes(c.entity_id);
+    const span = document.createElement("span");
+    span.textContent = c.attributes.friendly_name || c.entity_id;
+    label.append(checkbox, span);
+    el.haCovers.appendChild(label);
+  });
+
+  el.haDevices.classList.remove("hidden");
+  return { sensorCount: sensors.length, coverCount: covers.length };
+}
+
+function haApplySensorReading(tempValue) {
+  const temp = parseFloat(tempValue);
+  if (!Number.isFinite(temp)) return;
+  el.inputIndoor.value = String(Math.round(temp * 10) / 10);
+  saveSettings();
+  if (state.hourly) {
+    renderCurrentRecommendation();
+    renderTimeline();
+  }
+}
+
+async function haRefreshSensor() {
+  if (!state.ha.sensorId || !state.ha.token) return;
+  try {
+    const s = await haFetch(`/api/states/${encodeURIComponent(state.ha.sensorId)}`);
+    haApplySensorReading(s.state);
+  } catch {
+    /* transient failure: keep last known value */
+  }
+}
+
+function haStartSensorRefresh() {
+  clearInterval(state.ha.refreshTimer);
+  state.ha.refreshTimer = setInterval(haRefreshSensor, HA_SENSOR_REFRESH_MS);
+}
+
+async function haConnect({ silent = false } = {}) {
+  let cleanUrl;
+  try {
+    cleanUrl = haValidateUrl(el.haUrl.value.trim());
+  } catch {
+    if (!silent) el.haStatus.textContent = "Adresse invalide. Exemple : http://192.168.1.20:8123";
+    return;
+  }
+  const token = el.haToken.value.trim();
+  if (!token) {
+    if (!silent) el.haStatus.textContent = "Entrez votre jeton d'accès longue durée.";
+    return;
+  }
+
+  state.ha.url = cleanUrl;
+  state.ha.token = token;
+  el.btnHaConnect.disabled = true;
+  el.haStatus.textContent = "Connexion à Home Assistant…";
+  try {
+    const states = await haFetch("/api/states");
+    if (!Array.isArray(states)) throw new Error("Réponse inattendue");
+    const { sensorCount, coverCount } = haRenderDevices(states);
+    el.haStatus.textContent = `Connecté ✓ ${sensorCount} thermomètre(s), ${coverCount} volet(s) trouvés.`;
+    haSaveConfig();
+    if (state.ha.sensorId) {
+      const match = states.find((s) => s.entity_id === state.ha.sensorId);
+      if (match) haApplySensorReading(match.state);
+    }
+    haStartSensorRefresh();
+  } catch (err) {
+    el.haDevices.classList.add("hidden");
+    el.haStatus.textContent =
+      err.message === "Jeton refusé"
+        ? "Jeton refusé par Home Assistant. Vérifiez-le et réessayez."
+        : "Home Assistant injoignable. Vérifiez l'adresse (et le HTTPS si l'app est en ligne).";
+  } finally {
+    el.btnHaConnect.disabled = false;
+  }
+}
+
+async function haCoverCommand(service, statusVerb) {
+  const ids = haSelectedCoverIds();
+  if (ids.length === 0) {
+    el.haStatus.textContent = "Cochez au moins un volet à piloter.";
+    return;
+  }
+  el.btnShuttersOpen.disabled = true;
+  el.btnShuttersClose.disabled = true;
+  el.btnApplyReco.disabled = true;
+  try {
+    await haFetch(`/api/services/cover/${service}`, { entity_id: ids });
+    el.haStatus.textContent = `Ordre envoyé : ${statusVerb} ${ids.length} volet(s) ✓`;
+  } catch {
+    el.haStatus.textContent = "Échec de l'envoi de la commande aux volets.";
+  } finally {
+    el.btnShuttersOpen.disabled = false;
+    el.btnShuttersClose.disabled = false;
+    el.btnApplyReco.disabled = false;
+  }
+}
+
+function haRestoreConfig() {
+  const raw = storage.get(HA_KEY);
+  if (!raw) return;
+  try {
+    const saved = JSON.parse(raw);
+    if (typeof saved.url === "string") el.haUrl.value = saved.url;
+    if (typeof saved.token === "string") el.haToken.value = saved.token;
+    if (typeof saved.sensorId === "string") state.ha.sensorId = saved.sensorId;
+    if (Array.isArray(saved.coverIds)) state.ha.coverIds = saved.coverIds.map(String);
+    if (saved.url && saved.token) haConnect({ silent: true });
+  } catch {
+    /* corrupted entry: start unconfigured */
+  }
+}
+
+el.haHelpToggle.addEventListener("click", () => el.haHelp.classList.toggle("hidden"));
+el.btnHaConnect.addEventListener("click", () => haConnect());
+
+el.haSensor.addEventListener("change", () => {
+  state.ha.sensorId = el.haSensor.value;
+  haSaveConfig();
+  if (state.ha.sensorId) haRefreshSensor();
+});
+
+el.haCovers.addEventListener("change", () => {
+  state.ha.coverIds = haSelectedCoverIds();
+  haSaveConfig();
+});
+
+el.btnShuttersOpen.addEventListener("click", () => haCoverCommand("open_cover", "ouvrir"));
+el.btnShuttersClose.addEventListener("click", () => haCoverCommand("close_cover", "fermer"));
+
+el.btnApplyReco.addEventListener("click", () => {
+  if (!state.lastRecommendation) {
+    el.haStatus.textContent = "Obtenez d'abord une recommandation (météo ou mode manuel).";
+    return;
+  }
+  if (state.lastRecommendation === "close") {
+    haCoverCommand("close_cover", "fermer");
+  } else {
+    haCoverCommand("open_cover", "ouvrir");
+  }
+});
+
+haRestoreConfig();
