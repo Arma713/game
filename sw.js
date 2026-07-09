@@ -1,10 +1,12 @@
-const CACHE_NAME = "volet-malin-v6";
+const CACHE_NAME = "volet-malin-v7";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
   "./manifest.json",
+  "./icons/icon-96.png",
+  "./icons/icon-180.png",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
 ];
@@ -104,7 +106,15 @@ function decideAction(outdoorTemp, indoorTemp, targetMin, targetMax, isDay) {
   return { action: "close", reason: "Fermez les volets la nuit pour conserver la chaleur." };
 }
 
+const QUIET_START_HOUR = 23;
+const QUIET_END_HOUR = 7;
+
 async function checkAndNotify() {
+  // Quiet hours (device time): skip without updating lastAction, so the
+  // first check after the quiet window delivers the pending alert.
+  const hour = new Date().getHours();
+  if (hour >= QUIET_START_HOUR || hour < QUIET_END_HOUR) return;
+
   let watch;
   try {
     watch = await idbGet("watch");
@@ -119,7 +129,7 @@ async function checkAndNotify() {
   url.searchParams.set("current", "temperature_2m,is_day");
   let data;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) return;
     data = await res.json();
   } catch {

@@ -263,6 +263,9 @@ function renderTimeline() {
     const hourLabel = localHourLabel(time[i], utcOffsetSeconds);
 
     const hourEl = makeDiv("timeline-hour");
+    const cellLabel = `${hourLabel} : ${outdoorTemp}°C, volets ${rec.action === "close" ? "fermés" : "ouverts"}`;
+    hourEl.title = cellLabel;
+    hourEl.setAttribute("aria-label", cellLabel);
     hourEl.appendChild(makeDiv("", hourLabel));
     hourEl.appendChild(makeDiv(`bar ${rec.action}`, rec.action === "close" ? "🌡️" : "☀️"));
     hourEl.appendChild(makeDiv("temp", `${outdoorTemp}°`));
@@ -459,6 +462,20 @@ el.btnManualCompute.addEventListener("click", computeManual);
 // ---------------------------------------------------------------------------
 
 const NOTIFY_KEY = "volet-malin-notify";
+// Never fire a notification during these device-local hours; a night-time
+// transition is deferred to the end of the quiet window instead.
+const QUIET_START_HOUR = 23;
+const QUIET_END_HOUR = 7;
+
+function msUntilQuietEnd(now = new Date()) {
+  const h = now.getHours();
+  const inQuiet = h >= QUIET_START_HOUR || h < QUIET_END_HOUR;
+  if (!inQuiet) return 0;
+  const end = new Date(now);
+  end.setHours(QUIET_END_HOUR, 0, 0, 0);
+  if (h >= QUIET_START_HOUR) end.setDate(end.getDate() + 1);
+  return end.getTime() - now.getTime();
+}
 
 // Tiny IndexedDB key-value store, shared with the service worker so its
 // periodic background checks can read the location/settings snapshot.
@@ -534,6 +551,29 @@ function upcomingChanges() {
   return changes;
 }
 
+// Morning catch-up after quiet hours: notify the recommendation that is
+// current *now*, deduplicated against the last alert. A flip that reverted
+// overnight produces no notification at all.
+async function notifyCurrentIfChanged() {
+  if (!state.hourly) return;
+  const { indoorTemp, targetMin, targetMax } = getSettings();
+  const { time, temperature, isDay } = state.hourly;
+  const nowSeconds = Date.now() / 1000;
+  let idx = 0;
+  for (let i = 0; i < time.length; i++) {
+    if (time[i] > nowSeconds) break;
+    idx = i;
+  }
+  const rec = getRecommendation({
+    outdoorTemp: Math.round(temperature[idx]),
+    indoorTemp,
+    targetMin,
+    targetMax,
+    isDay: isDay[idx] === 1,
+  });
+  await fireActionNotification({ action: rec.action, reason: rec.reason });
+}
+
 async function fireActionNotification(change) {
   try {
     // Skip if the service worker's background check already notified this flip.
@@ -577,6 +617,16 @@ function scheduleNotifications() {
   }
   const delay = Math.min(next.atSeconds * 1000 - Date.now(), 2 ** 31 - 1);
   state.notifyTimer = setTimeout(async () => {
+    const quietMs = msUntilQuietEnd();
+    if (quietMs > 0) {
+      // Transition falls in quiet hours: wait until morning, then notify
+      // the recommendation valid at that moment (if it still differs).
+      state.notifyTimer = setTimeout(async () => {
+        await notifyCurrentIfChanged();
+        scheduleNotifications();
+      }, quietMs);
+      return;
+    }
     await fireActionNotification(next);
     scheduleNotifications(); // chain to the following transition
   }, delay);
@@ -725,6 +775,11 @@ function haRenderDevices(states) {
   });
   if (state.ha.sensorId && sensors.some((s) => s.entity_id === state.ha.sensorId)) {
     el.haSensor.value = state.ha.sensorId;
+  } else if (state.ha.sensorId) {
+    // The saved sensor no longer exists in HA: forget it, otherwise we would
+    // keep polling a dead entity (404) every 5 minutes forever.
+    state.ha.sensorId = "";
+    haSaveConfig();
   }
 
   el.haCovers.replaceChildren();
