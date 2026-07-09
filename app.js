@@ -353,6 +353,47 @@ async function fetchCityMatches(cityName) {
     }));
 }
 
+// French national geocoders, tried in order when Open-Meteo's worldwide
+// index doesn't know the town: they cover every French commune, including
+// small villages (e.g. Replonges) missing from GeoNames.
+const FRENCH_GEOCODERS = [
+  "https://data.geopf.fr/geocodage/search",
+  "https://api-adresse.data.gouv.fr/search/",
+];
+
+async function fetchFrenchCityMatches(cityName) {
+  for (const base of FRENCH_GEOCODERS) {
+    try {
+      const url = new URL(base);
+      url.searchParams.set("q", cityName);
+      url.searchParams.set("type", "municipality");
+      url.searchParams.set("limit", "5");
+      const res = await fetchWithTimeout(url);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const features = (data.features || []).filter(
+        (f) =>
+          f &&
+          f.geometry &&
+          Array.isArray(f.geometry.coordinates) &&
+          Number.isFinite(f.geometry.coordinates[0]) &&
+          Number.isFinite(f.geometry.coordinates[1])
+      );
+      if (features.length > 0) {
+        return features.map((f) => ({
+          lat: f.geometry.coordinates[1],
+          lon: f.geometry.coordinates[0],
+          name: String((f.properties && (f.properties.city || f.properties.label)) || cityName),
+          region: String((f.properties && f.properties.context) || "France"),
+        }));
+      }
+    } catch {
+      /* this geocoder failed or timed out: try the next one */
+    }
+  }
+  return [];
+}
+
 function renderCityChoices(matches) {
   el.cityResults.replaceChildren();
   matches.forEach((m) => {
@@ -464,8 +505,15 @@ el.formCity.addEventListener("submit", async (e) => {
   el.cityResults.replaceChildren();
   setBusy(true);
   try {
-    const matches = await fetchCityMatches(cityName);
+    let matches = await fetchCityMatches(cityName);
     if (token !== state.requestToken) return;
+    if (matches.length === 0) {
+      // Worldwide index came up empty: fall back to the French national
+      // geocoders, which know every commune.
+      el.locationStatus.textContent = "Recherche dans l'annuaire des communes françaises…";
+      matches = await fetchFrenchCityMatches(cityName);
+      if (token !== state.requestToken) return;
+    }
     if (matches.length === 0) {
       setBusy(false);
       el.locationStatus.textContent =

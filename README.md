@@ -22,7 +22,7 @@ Application web (installable comme app mobile) qui te dit **quand ouvrir ou ferm
 
 ## Ce que fait l'app
 
-1. Tu donnes ta position (géolocalisation) ou le nom de ta ville.
+1. Tu donnes ta position (géolocalisation) ou le nom de ta ville. Si plusieurs communes correspondent, l'app te propose la liste ; si l'annuaire mondial ne connaît pas ta commune, elle bascule automatiquement sur le géocodeur officiel français (Géoplateforme IGN / API Adresse), qui couvre toutes les communes de France.
 2. L'app récupère la météo heure par heure via [Open-Meteo](https://open-meteo.com/) (gratuit, sans clé API).
 3. Tu renseignes ta température intérieure actuelle et ta plage de confort (ex. 19–24°C).
 4. L'app te dit immédiatement s'il faut **fermer** ou **ouvrir** tes volets, avec l'explication.
