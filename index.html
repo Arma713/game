@@ -2,6 +2,10 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; connect-src 'self' https://api.open-meteo.com https://geocoding-api.open-meteo.com; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
+  />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
   <title>Volet Malin — Optimiseur de température</title>
 
@@ -51,7 +55,7 @@
           </button>
           <div class="or">ou</div>
           <form id="form-city" class="city-form">
-            <input id="input-city" type="text" placeholder="Nom de votre ville" autocomplete="off" />
+            <input id="input-city" type="text" placeholder="Nom de votre ville" autocomplete="off" maxlength="80" />
             <button type="submit" class="btn btn-secondary">Rechercher</button>
           </form>
         </div>

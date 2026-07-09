@@ -1,4 +1,4 @@
-const CACHE_NAME = "volet-malin-v1";
+const CACHE_NAME = "volet-malin-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -24,13 +24,26 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-  // Never cache API calls: always go to network so weather data stays fresh.
-  if (url.hostname.endsWith("open-meteo.com")) {
-    event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
-    return;
-  }
+  const { request } = event;
+  if (request.method !== "GET") return;
+
+  const url = new URL(request.url);
+  // Only handle same-origin requests; API calls (open-meteo) go straight
+  // to the network so weather data is never served stale from cache.
+  if (url.origin !== self.location.origin) return;
+
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    caches.match(request).then(
+      (cached) =>
+        cached ||
+        fetch(request).then((response) => {
+          // Cache only complete, successful responses (not errors/opaque/partial).
+          if (response.ok && response.type === "basic") {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+    )
   );
 });
