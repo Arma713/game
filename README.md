@@ -8,6 +8,7 @@ Application web (installable comme app mobile) qui te dit **quand ouvrir ou ferm
 
 - [Ce que fait l'app](#ce-que-fait-lapp)
 - [Comment fonctionne la recommandation](#comment-fonctionne-la-recommandation)
+- [Connecter thermomètres et volets (Home Assistant)](#connecter-thermomètres-et-volets-home-assistant)
 - [Structure du projet](#structure-du-projet)
 - [Tester en local](#tester-en-local)
 - [Installer comme app mobile (PWA)](#installer-comme-app-mobile-pwa)
@@ -43,6 +44,32 @@ La logique (dans `getRecommendation()` de `app.js`) compare température extéri
 - Sinon → **fermer** (isolation nocturne par défaut)
 
 C'est le même raisonnement qu'on applique intuitivement l'été (fermer les volets la journée, ouvrir la nuit pour rafraîchir) et l'hiver (ouvrir au soleil, fermer la nuit pour garder la chaleur).
+
+## Connecter thermomètres et volets (Home Assistant)
+
+L'app peut se brancher sur [Home Assistant](https://www.home-assistant.io/), la plateforme domotique open source qui fédère la plupart des thermomètres connectés (Zigbee, Bluetooth, Netatmo…) et des volets roulants (Somfy/TaHoma, Legrand, modules Zigbee…).
+
+Une fois connectée :
+
+- **Thermomètre intérieur** : la température intérieure de l'app est lue automatiquement depuis le capteur choisi (rafraîchie toutes les 5 minutes), plus besoin de la saisir.
+- **Volets** : boutons *Ouvrir* / *Fermer* pour piloter les volets cochés, et bouton **Appliquer la recommandation** qui exécute directement le conseil affiché (fermer → ferme les volets, ouvrir → les ouvre).
+
+### Mise en place
+
+1. Tes appareils doivent déjà être intégrés à Home Assistant (les volets apparaissent comme des entités `cover.*`, les thermomètres comme `sensor.*` en °C).
+2. Dans Home Assistant : profil → onglet **Sécurité** → **Jetons d'accès longue durée** → **Créer un jeton**.
+3. Dans l'app, carte **Maison connectée** : colle l'adresse de ton Home Assistant et le jeton, puis **Connecter**.
+
+### Points d'attention
+
+- **HTTPS** : si l'app est servie en HTTPS (Netlify, GitHub Pages…), l'adresse Home Assistant doit aussi être en HTTPS (ex. lien Nabu Casa `https://xxxx.ui.nabu.casa`) — les navigateurs bloquent les appels HTTP depuis une page HTTPS. En local (`http://localhost`), une adresse HA locale en HTTP fonctionne.
+- **CORS** : Home Assistant doit autoriser l'origine de l'app. Ajoute dans `configuration.yaml` :
+  ```yaml
+  http:
+    cors_allowed_origins:
+      - https://ton-app.netlify.app
+  ```
+- **Jeton** : il est stocké uniquement dans le navigateur de ton appareil (localStorage), jamais envoyé ailleurs qu'à ton Home Assistant. Ne l'utilise pas sur un appareil partagé ; tu peux le révoquer à tout moment depuis ton profil HA.
 
 ## Structure du projet
 

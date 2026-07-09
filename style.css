@@ -355,6 +355,90 @@ input:focus, select:focus, button:focus-visible {
   color: var(--open-color);
 }
 
+.linklike {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ha-help {
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+}
+
+.ha-help ol {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+
+.ha-help li {
+  margin-bottom: 4px;
+}
+
+.ha-help p {
+  margin: 0;
+}
+
+.ha-help a {
+  color: var(--primary);
+}
+
+.ha-config {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.ha-config .btn {
+  justify-self: start;
+}
+
+.ha-devices {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.covers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.covers-list label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.covers-list input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  accent-color: var(--primary);
+}
+
+.ha-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .app-footer {
   text-align: center;
   color: var(--text-muted);
