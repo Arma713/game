@@ -6,7 +6,8 @@
     http-equiv="Content-Security-Policy"
     content="default-src 'self'; connect-src 'self' https://api.open-meteo.com https://geocoding-api.open-meteo.com; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
   />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="referrer" content="no-referrer" />
   <title>Volet Malin — Optimiseur de température</title>
 
   <link rel="manifest" href="manifest.json" />
@@ -59,7 +60,7 @@
             <button type="submit" class="btn btn-secondary">Rechercher</button>
           </form>
         </div>
-        <p id="location-status" class="status-text"></p>
+        <p id="location-status" class="status-text" role="status" aria-live="polite"></p>
       </section>
 
       <section class="card settings-card">
@@ -111,8 +112,8 @@
         <button id="btn-manual-compute" class="btn btn-primary">Obtenir ma recommandation</button>
       </section>
 
-      <section id="result-card" class="card result-card hidden">
-        <div id="result-icon" class="result-icon"></div>
+      <section id="result-card" class="card result-card hidden" role="status" aria-live="polite">
+        <div id="result-icon" class="result-icon" aria-hidden="true"></div>
         <div class="result-body">
           <div id="result-action" class="result-action"></div>
           <p id="result-reason" class="result-reason"></p>

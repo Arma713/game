@@ -1,4 +1,4 @@
-const CACHE_NAME = "volet-malin-v2";
+const CACHE_NAME = "volet-malin-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -32,18 +32,22 @@ self.addEventListener("fetch", (event) => {
   // to the network so weather data is never served stale from cache.
   if (url.origin !== self.location.origin) return;
 
+  // Stale-while-revalidate: serve from cache instantly, refresh the cache in
+  // the background so app updates reach users on their next visit without a
+  // manual cache-version bump.
   event.respondWith(
-    caches.match(request).then(
-      (cached) =>
-        cached ||
-        fetch(request).then((response) => {
+    caches.open(CACHE_NAME).then(async (cache) => {
+      const cached = await cache.match(request);
+      const network = fetch(request)
+        .then((response) => {
           // Cache only complete, successful responses (not errors/opaque/partial).
           if (response.ok && response.type === "basic") {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+            cache.put(request, response.clone());
           }
           return response;
         })
-    )
+        .catch(() => cached);
+      return cached || network;
+    })
   );
 });
