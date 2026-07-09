@@ -55,6 +55,7 @@ const el = {
   btnApplyReco: document.getElementById("btn-apply-reco"),
   btnNotify: document.getElementById("btn-notify"),
   notifyStatus: document.getElementById("notify-status"),
+  cityResults: document.getElementById("city-results"),
 };
 
 // localStorage throws in some private-browsing modes; degrade to no-op.
@@ -331,21 +332,50 @@ async function fetchWeather(lat, lon) {
   return { time: h.time, temperature: h.temperature_2m, isDay: h.is_day, utcOffsetSeconds };
 }
 
-async function fetchCityCoords(cityName) {
+// Up to 5 matches so villages, homonyms, and near-misses are offered as a
+// choice instead of silently taking (or missing) the first hit.
+async function fetchCityMatches(cityName) {
   const url = new URL("https://geocoding-api.open-meteo.com/v1/search");
   url.searchParams.set("name", cityName);
-  url.searchParams.set("count", "1");
+  url.searchParams.set("count", "5");
   url.searchParams.set("language", "fr");
   url.searchParams.set("format", "json");
   const res = await fetchWithTimeout(url);
   if (!res.ok) throw new Error("Erreur géocodage");
   const data = await res.json();
-  if (!data.results || data.results.length === 0) throw new Error("Ville introuvable");
-  const r = data.results[0];
-  if (!Number.isFinite(r.latitude) || !Number.isFinite(r.longitude)) {
-    throw new Error("Coordonnées invalides");
-  }
-  return { lat: r.latitude, lon: r.longitude, name: String(r.name || cityName) };
+  return (data.results || [])
+    .filter((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude))
+    .map((r) => ({
+      lat: r.latitude,
+      lon: r.longitude,
+      name: String(r.name || cityName),
+      region: [r.admin1, r.country].filter(Boolean).join(", "),
+    }));
+}
+
+function renderCityChoices(matches) {
+  el.cityResults.replaceChildren();
+  matches.forEach((m) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "city-choice";
+    const strong = document.createElement("strong");
+    strong.textContent = m.name;
+    btn.appendChild(strong);
+    if (m.region) {
+      const region = document.createElement("span");
+      region.className = "region";
+      region.textContent = m.region;
+      btn.appendChild(region);
+    }
+    btn.addEventListener("click", () => {
+      el.cityResults.classList.add("hidden");
+      el.cityResults.replaceChildren();
+      loadWeatherFor(m.lat, m.lon, m.name);
+    });
+    el.cityResults.appendChild(btn);
+  });
+  el.cityResults.classList.remove("hidden");
 }
 
 async function loadWeatherFor(lat, lon, label) {
@@ -430,15 +460,30 @@ el.formCity.addEventListener("submit", async (e) => {
   if (!cityName) return;
   const token = ++state.requestToken;
   el.locationStatus.textContent = "Recherche de la ville…";
+  el.cityResults.classList.add("hidden");
+  el.cityResults.replaceChildren();
   setBusy(true);
   try {
-    const { lat, lon, name } = await fetchCityCoords(cityName);
+    const matches = await fetchCityMatches(cityName);
     if (token !== state.requestToken) return;
-    await loadWeatherFor(lat, lon, name);
+    if (matches.length === 0) {
+      setBusy(false);
+      el.locationStatus.textContent =
+        `Aucune ville trouvée pour « ${cityName} ». Vérifiez l'orthographe, ou essayez la commune voisine plus grande.`;
+      return;
+    }
+    if (matches.length === 1) {
+      await loadWeatherFor(matches[0].lat, matches[0].lon, matches[0].name);
+      return;
+    }
+    setBusy(false);
+    el.locationStatus.textContent = "Plusieurs villes correspondent, choisissez la vôtre :";
+    renderCityChoices(matches);
   } catch (err) {
     if (token !== state.requestToken) return;
     setBusy(false);
-    el.locationStatus.textContent = "Ville introuvable ou service indisponible. Utilisez le mode manuel.";
+    el.locationStatus.textContent =
+      "Service de recherche injoignable — vérifiez votre connexion. En attendant, utilisez le mode manuel ci-dessous.";
     el.manualCard.classList.remove("hidden");
   }
 });

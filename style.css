@@ -355,6 +355,34 @@ input:focus, select:focus, button:focus-visible {
   color: var(--open-color);
 }
 
+.city-results {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.city-results .city-choice {
+  text-align: left;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.city-results .city-choice:hover {
+  border-color: var(--primary);
+}
+
+.city-results .city-choice .region {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  display: block;
+}
+
 .linklike {
   background: none;
   border: none;
