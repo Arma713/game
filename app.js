@@ -13,6 +13,8 @@ const state = {
   lastRecommendation: null, // "open" | "close", set on every renderResult
   lastLocation: null, // { lat, lon, label } of the last successful weather load
   weatherLoadedAt: 0,
+  notifyEnabled: false,
+  notifyTimer: null,
   ha: { url: "", token: "", sensorId: "", coverIds: [], refreshTimer: null },
 };
 
@@ -51,6 +53,8 @@ const el = {
   btnShuttersOpen: document.getElementById("btn-shutters-open"),
   btnShuttersClose: document.getElementById("btn-shutters-close"),
   btnApplyReco: document.getElementById("btn-apply-reco"),
+  btnNotify: document.getElementById("btn-notify"),
+  notifyStatus: document.getElementById("notify-status"),
 };
 
 // localStorage throws in some private-browsing modes; degrade to no-op.
@@ -369,6 +373,8 @@ async function loadWeatherFor(lat, lon, label) {
     };
     renderCurrentRecommendation();
     renderTimeline();
+    scheduleNotifications();
+    syncWatchSnapshot();
   } catch (err) {
     if (token !== state.requestToken) return;
     el.locationStatus.textContent = "Météo automatique indisponible. Utilisez le mode manuel ci-dessous.";
@@ -442,9 +448,207 @@ el.btnManualCompute.addEventListener("click", computeManual);
     if (state.hourly) {
       renderCurrentRecommendation();
       renderTimeline();
+      scheduleNotifications();
+      syncWatchSnapshot();
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Notifications: alert at the moment the recommendation flips open <-> close
+// ---------------------------------------------------------------------------
+
+const NOTIFY_KEY = "volet-malin-notify";
+
+// Tiny IndexedDB key-value store, shared with the service worker so its
+// periodic background checks can read the location/settings snapshot.
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("volet-malin", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("kv");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbSet(key, value) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("kv", "readwrite");
+    tx.objectStore("kv").put(value, key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
+}
+
+async function idbGet(key) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("kv", "readonly");
+    const rq = tx.objectStore("kv").get(key);
+    rq.onsuccess = () => { db.close(); resolve(rq.result); };
+    rq.onerror = () => { db.close(); reject(rq.error); };
+  });
+}
+
+// Snapshot for the service worker's periodicsync checks (app closed).
+function syncWatchSnapshot() {
+  if (!state.lastLocation) return;
+  const { indoorTemp, targetMin, targetMax } = getSettings();
+  idbSet("watch", {
+    enabled: state.notifyEnabled,
+    lat: state.lastLocation.lat,
+    lon: state.lastLocation.lon,
+    indoorTemp,
+    targetMin,
+    targetMax,
+    lastAction: state.lastRecommendation,
+  }).catch(() => {});
+}
+
+// All future open/close transitions in the loaded forecast.
+function upcomingChanges() {
+  if (!state.hourly) return [];
+  const { indoorTemp, targetMin, targetMax } = getSettings();
+  const { time, temperature, isDay, utcOffsetSeconds } = state.hourly;
+  const changes = [];
+  let prevAction = null;
+  for (let i = 0; i < time.length; i++) {
+    const rec = getRecommendation({
+      outdoorTemp: Math.round(temperature[i]),
+      indoorTemp,
+      targetMin,
+      targetMax,
+      isDay: isDay[i] === 1,
+    });
+    if (prevAction !== null && rec.action !== prevAction) {
+      changes.push({
+        atSeconds: time[i],
+        action: rec.action,
+        reason: rec.reason,
+        hourLabel: localHourLabel(time[i], utcOffsetSeconds),
+      });
+    }
+    prevAction = rec.action;
+  }
+  return changes;
+}
+
+async function fireActionNotification(change) {
+  try {
+    // Skip if the service worker's background check already notified this flip.
+    const watch = await idbGet("watch").catch(() => null);
+    if (watch && watch.lastAction === change.action) return;
+    const reg = await navigator.serviceWorker.ready;
+    await reg.showNotification(
+      change.action === "close" ? "Fermez vos volets 🌡️" : "Ouvrez vos volets ☀️",
+      { body: change.reason, tag: "volet-action", icon: "icons/icon-192.png", badge: "icons/icon-96.png" }
+    );
+    if (watch) {
+      watch.lastAction = change.action;
+      idbSet("watch", watch).catch(() => {});
+    }
+  } catch {
+    /* notification failed: nothing actionable */
+  }
+}
+
+function updateNotifyUI(extraStatus) {
+  el.btnNotify.textContent = state.notifyEnabled
+    ? "🔕 Désactiver les notifications"
+    : "🔔 Activer les notifications";
+  if (extraStatus !== undefined) {
+    el.notifyStatus.textContent = extraStatus;
+  }
+}
+
+function scheduleNotifications() {
+  clearTimeout(state.notifyTimer);
+  state.notifyTimer = null;
+  if (!state.notifyEnabled) return;
+  if (!state.hourly) {
+    updateNotifyUI("Notifications activées. Chargez la météo de votre position pour programmer les alertes.");
+    return;
+  }
+  const next = upcomingChanges().find((c) => c.atSeconds * 1000 > Date.now());
+  if (!next) {
+    updateNotifyUI("Notifications activées · aucun changement prévu dans les prochaines 48 h.");
+    return;
+  }
+  const delay = Math.min(next.atSeconds * 1000 - Date.now(), 2 ** 31 - 1);
+  state.notifyTimer = setTimeout(async () => {
+    await fireActionNotification(next);
+    scheduleNotifications(); // chain to the following transition
+  }, delay);
+  updateNotifyUI(
+    `Notifications activées · prochaine alerte : ${next.action === "close" ? "FERMER" : "OUVRIR"} vers ${next.hourLabel}.`
+  );
+}
+
+async function enableNotifications() {
+  if (!("Notification" in window) || !("serviceWorker" in navigator)) {
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    updateNotifyUI(
+      isIOS
+        ? "Sur iPhone/iPad : installez d'abord l'app (Partager → Sur l'écran d'accueil), puis activez les notifications depuis l'app installée."
+        : "Les notifications ne sont pas supportées par ce navigateur."
+    );
+    return;
+  }
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") {
+    updateNotifyUI("Autorisation refusée. Vous pouvez la réactiver dans les réglages du navigateur.");
+    return;
+  }
+  state.notifyEnabled = true;
+  storage.set(NOTIFY_KEY, "1");
+  scheduleNotifications();
+  syncWatchSnapshot();
+  // Progressive enhancement: periodic background checks (Chrome/Android,
+  // installed PWA) so the flip is detected even with the app closed.
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    if ("periodicSync" in reg) {
+      await reg.periodicSync.register("volet-check", { minInterval: 60 * 60 * 1000 });
+    }
+  } catch {
+    /* not available: in-app scheduling still works */
+  }
+}
+
+async function disableNotifications() {
+  state.notifyEnabled = false;
+  storage.set(NOTIFY_KEY, "0");
+  clearTimeout(state.notifyTimer);
+  state.notifyTimer = null;
+  updateNotifyUI("Notifications désactivées.");
+  syncWatchSnapshot();
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    if ("periodicSync" in reg) await reg.periodicSync.unregister("volet-check");
+  } catch {
+    /* ignore */
+  }
+}
+
+el.btnNotify.addEventListener("click", () => {
+  if (state.notifyEnabled) {
+    disableNotifications();
+  } else {
+    enableNotifications();
+  }
+});
+
+// Restore notification preference (permission may have been revoked since).
+if (
+  storage.get(NOTIFY_KEY) === "1" &&
+  "Notification" in window &&
+  Notification.permission === "granted"
+) {
+  state.notifyEnabled = true;
+  scheduleNotifications();
+}
+updateNotifyUI();
 
 // ---------------------------------------------------------------------------
 // Home Assistant: read indoor thermometers, drive shutters (cover entities)

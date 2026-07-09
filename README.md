@@ -9,6 +9,7 @@ Application web (installable comme app mobile) qui te dit **quand ouvrir ou ferm
 - [Ce que fait l'app](#ce-que-fait-lapp)
 - [Comment fonctionne la recommandation](#comment-fonctionne-la-recommandation)
 - [Connecter thermomètres et volets (Home Assistant)](#connecter-thermomètres-et-volets-home-assistant)
+- [Notifications](#notifications)
 - [Structure du projet](#structure-du-projet)
 - [Tester en local](#tester-en-local)
 - [Installer comme app mobile (PWA)](#installer-comme-app-mobile-pwa)
@@ -70,6 +71,21 @@ Une fois connectée :
       - https://ton-app.netlify.app
   ```
 - **Jeton** : il est stocké uniquement dans le navigateur de ton appareil (localStorage), jamais envoyé ailleurs qu'à ton Home Assistant. Ne l'utilise pas sur un appareil partagé ; tu peux le révoquer à tout moment depuis ton profil HA.
+
+## Notifications
+
+Le bouton **🔔 Activer les notifications** programme une alerte au moment exact où la recommandation bascule (ex. "Fermez vos volets 🌡️" quand la chaleur arrive), calculée d'après les prévisions des prochaines 48 h. La carte affiche la prochaine alerte prévue.
+
+Deux mécanismes complémentaires (sans serveur — l'app est 100 % statique) :
+
+- **App ouverte ou en arrière-plan** : minuterie interne calée sur les transitions des prévisions, re-programmée à chaque rafraîchissement météo.
+- **App fermée** (Chrome/Android, app installée) : *Periodic Background Sync* — le service worker revérifie la météo environ toutes les heures et notifie si la recommandation a changé depuis la dernière alerte. Les deux canaux se déduplique via un instantané partagé en IndexedDB.
+
+Limites honnêtes :
+
+- **iPhone/iPad** : notifications disponibles uniquement pour l'app **installée sur l'écran d'accueil** (iOS 16.4+), et pas de vérification en arrière-plan app fermée (le Periodic Background Sync n'existe pas sur iOS). L'alerte partira si l'app est ouverte ou en arrière-plan récent.
+- La fréquence du Periodic Background Sync est décidée par le navigateur (selon l'usage du site) — l'heure de l'alerte app fermée est approximative.
+- Une fiabilité totale app fermée nécessiterait un serveur de push (Web Push + VAPID) — possible en ajoutant un petit backend plus tard.
 
 ## Structure du projet
 
