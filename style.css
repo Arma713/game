@@ -101,11 +101,6 @@ body {
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  background: var(--primary);
-  color: var(--primary-text);
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .app-header h1 {
